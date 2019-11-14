@@ -52,4 +52,4 @@ my-mqtt
 `my-mqtt` package 遵循 Eclipse Public License - v 1.0 许可，详见 `LICENSE` 文件。
 
 * 维护：hichard
-* 主页：https://github.com/RT-Thread-packages/paho-mqtt
+* 主页：https://github.com/hichard/mymqtt
