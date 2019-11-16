@@ -271,7 +271,7 @@ static int net_connect(mqtt_client *c)
   c->next_packetid = 0;
   
 #ifdef MQTT_USING_TLS
-  if((strncmp(uri, "ssl://", 6) == 0) || (strncmp(uri, "tls://", 6) == 0))
+  if((strncmp(c->uri, "ssl://", 6) == 0) || (strncmp(c->uri, "tls://", 6) == 0))
   {
     if (mqtt_open_tls(c) < 0)
     {
@@ -447,7 +447,7 @@ static int send_packet(mqtt_client *c, void *buf, int length)
     while(total < length) {
       rc = mbedtls_client_write(c->tls_session, &c->buf[total], bytesleft);
       if(rc <= 0) {
-        if(ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+        if(rc != MBEDTLS_ERR_SSL_WANT_READ && rc != MBEDTLS_ERR_SSL_WANT_WRITE) {
           break;
         }
       } else {
