@@ -958,7 +958,7 @@ static int mqtt_cycle(mqtt_client *c)
       if (MQTTDeserialize_unsuback(&mypacketid, c->readbuf, c->readbuf_size) == 1) {
         mqtt_message_ack msg;
         msg.packet_id = mypacketid;
-        msg.msg_type = SUBACK;
+        msg.msg_type = UNSUBACK;
         rc = PAHO_SUCCESS;
         rt_mq_send(c->msg_queue, &msg, sizeof(mqtt_message_ack));
       } else
