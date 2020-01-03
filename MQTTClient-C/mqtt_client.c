@@ -42,8 +42,10 @@
 *********************************************************************************************************/
 #define DBG_ENABLE
 #define DBG_SECTION_NAME    "mqtt"
+
+#define MQTT_DEBUG
 #ifdef MQTT_DEBUG
-#define DBG_LEVEL           DBG_LOG
+#define DBG_LEVEL           DBG_WARNING
 #else
 #define DBG_LEVEL           DBG_INFO
 #endif /* MQTT_DEBUG */
@@ -478,7 +480,6 @@ __send_exit:
   if(rc <= 0) {
     return PAHO_FAILURE;
   } else {
-    c->tick_ping = rt_tick_get();
     return PAHO_SUCCESS;
   }
 }
@@ -607,6 +608,8 @@ static int mqttpacket_readpacket(mqtt_client *c)
   
   header.byte = c->readbuf[0];
   rc = header.bits.type;
+  c->tick_ping = rt_tick_get();
+  c->keepalive_counter = 0;
   
 __read_exit:
   return rc;
@@ -1014,13 +1017,10 @@ static int mqtt_cycle(mqtt_client *c)
     }
     break;
   case PINGRESP:
-    c->tick_ping = rt_tick_get();
-    c->keepalive_counter = 0;
     break;
   }
   
 __cycle_exit:
-  c->tick_ping = rt_tick_get();
   return rc;
 }
 
@@ -1126,6 +1126,7 @@ __mqtt_start:
         goto __mqtt_disconnect;
       }
       timeout.tv_sec = 10;
+      c->tick_ping = rt_tick_get();
       c->keepalive_counter++;
       if(c->keepalive_counter >= c->keepalive_count) {
         LOG_E("[%d] can't recv Ping Response");
