@@ -293,6 +293,12 @@ static int net_connect(mqtt_client *c)
     LOG_E("resolve uri err");
     goto _exit;
   }
+  if (addr_res)
+  {
+    freeaddrinfo(addr_res);
+    addr_res = RT_NULL;
+  }
+
   
 #ifdef MQTT_USING_TLS
   if (c->tls_session)
