@@ -266,6 +266,7 @@ static int net_connect(mqtt_client *c)
   int rc = -1;
   struct addrinfo *addr_res = RT_NULL;
   struct timeval timeout;
+  struct linger so_linger;
   
   timeout.tv_sec = MQTT_SOCKET_TIMEO / 1000;
   timeout.tv_usec = 0;
@@ -299,7 +300,7 @@ static int net_connect(mqtt_client *c)
   {
     int tls_ret = 0;
     
-    if ((tls_ret = mbedtls_client_context(c->tls_session)) < 0)
+    if ((tls_ret = mbedtls_client_context(c->tls_session, c->certs, c->certs_len)) < 0)
     {
       LOG_E("mbedtls_client_context err return : -0x%x", -tls_ret);
       return -RT_ERROR;
@@ -341,6 +342,11 @@ static int net_connect(mqtt_client *c)
     rc = -2;
     goto _exit;
   }
+
+  /* set close info */
+  so_linger.l_onoff = 1;
+  so_linger.l_linger = 0;
+  setsockopt(c->sock,SOL_SOCKET,SO_LINGER, &so_linger,sizeof(so_linger));
   
   /* set recv timeout option */
   setsockopt(c->sock, SOL_SOCKET, SO_RCVTIMEO, (void *) &timeout,

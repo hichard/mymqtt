@@ -157,6 +157,8 @@ struct mqtt_client
   rt_mq_t    msg_queue;                         /* 用于处理应答包 */
 #ifdef MQTT_USING_TLS
     MbedTLSSession *tls_session;                /* mbedtls session struct */
+    const char *certs;                         /* mbedtls CA certs */
+    uint16_t certs_len;                         /* mbedtls CA certs  length */
 #endif
 };
 
