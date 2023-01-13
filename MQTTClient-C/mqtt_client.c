@@ -316,6 +316,12 @@ static int net_connect(mqtt_client *c)
     
     c->sock = c->tls_session->server_fd.fd;
     
+    /* set close info */
+    so_linger.l_onoff = 1;
+    so_linger.l_linger = 20;
+    setsockopt(c->sock,SOL_SOCKET,SO_LINGER, &so_linger,sizeof(so_linger));
+  
+    
     /* set recv timeout option */
     setsockopt(c->sock, SOL_SOCKET, SO_RCVTIMEO, (void *) &timeout,
                sizeof(timeout));
@@ -336,6 +342,7 @@ static int net_connect(mqtt_client *c)
   if ((rc = connect(c->sock, addr_res->ai_addr, addr_res->ai_addrlen)) == -1)
   {
     LOG_E("connect err!");
+    shutdown(c->sock, SHUT_RDWR);
     closesocket(c->sock);
     c->sock = -1;
     
@@ -383,6 +390,7 @@ static int net_disconnect(mqtt_client *c)
   
   if (c->sock >= 0)
   {
+    shutdown(c->sock, SHUT_RDWR);
     closesocket(c->sock);
     c->sock = -1;
   }
