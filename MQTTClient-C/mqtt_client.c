@@ -318,7 +318,7 @@ static int net_connect(mqtt_client *c)
     
     /* set close info */
     so_linger.l_onoff = 1;
-    so_linger.l_linger = 20;
+    so_linger.l_linger = 0;
     setsockopt(c->sock,SOL_SOCKET,SO_LINGER, &so_linger,sizeof(so_linger));
   
     
@@ -336,9 +336,10 @@ static int net_connect(mqtt_client *c)
   if ((c->sock = socket(addr_res->ai_family, SOCK_STREAM, 0)) == -1)
   {
     LOG_E("create socket error!");
+    rc = -2;
     goto _exit;
   }
-  
+
   if ((rc = connect(c->sock, addr_res->ai_addr, addr_res->ai_addrlen)) == -1)
   {
     LOG_E("connect err!");
@@ -360,6 +361,7 @@ static int net_connect(mqtt_client *c)
              sizeof(timeout));
   setsockopt(c->sock, SOL_SOCKET, SO_SNDTIMEO, (void *) &timeout,
              sizeof(timeout));
+  rc = 0;
   
 _exit:
   if (addr_res)
@@ -379,11 +381,13 @@ _exit:
 *********************************************************************************************************/
 static int net_disconnect(mqtt_client *c)
 {
+  mqtt_client_lock(c);
 #ifdef MQTT_USING_TLS
   if (c->tls_session)
   {
     mbedtls_client_close(c->tls_session);
     c->sock = -1;
+    mqtt_client_unlock(c)
     return 0;
   }
 #endif
@@ -395,6 +399,7 @@ static int net_disconnect(mqtt_client *c)
     c->sock = -1;
   }
   
+  mqtt_client_unlock(c);
   return 0;
 }
 
@@ -410,6 +415,8 @@ static int net_disconnect_exit(mqtt_client *c)
   int i;
   
   net_disconnect(c);
+
+  c->isconnected = 0;
   
   if (c->buf && c->readbuf)
   {
@@ -436,8 +443,6 @@ static int net_disconnect_exit(mqtt_client *c)
       c->message_handlers[i].callback = RT_NULL;
     }
   }
-  
-  c->isconnected = 0;
   
   return 0;
 }
@@ -605,6 +610,7 @@ static int mqttpacket_readpacket(mqtt_client *c)
   int len = 0;
   int rem_len = 0;
   
+  mqtt_client_lock(c);
   /* 1. read the header byte.  This has the packet type in it */
   if (recv_packet(c, c->readbuf, 1, 0) != 1)
     goto __read_exit;
@@ -626,6 +632,7 @@ static int mqttpacket_readpacket(mqtt_client *c)
   c->keepalive_counter = 0;
   
 __read_exit:
+  mqtt_client_unlock(c);
   return rc;
 }
 
@@ -658,6 +665,7 @@ static int mqtt_connect(mqtt_client *c)
   
   c->keepalive_interval = options->keepAliveInterval;
   
+  mqtt_client_lock(c);
   if ((len = MQTTSerialize_connect(c->buf, c->buf_size, options)) <= 0)
     goto __connect_exit;
   
@@ -709,6 +717,7 @@ static int mqtt_connect(mqtt_client *c)
     rc = -1;
   
 __connect_exit:
+  mqtt_client_unlock(c);
   if (rc == 0)
     c->isconnected = 1;
   
@@ -727,12 +736,14 @@ static int mqtt_disconnect(mqtt_client *c)
   int rc = PAHO_FAILURE;
   int len = 0;
   
+  mqtt_client_lock(c);
   len = MQTTSerialize_disconnect(c->buf, c->buf_size);
   if (len > 0)
     rc = send_packet(c, c->buf, len);            // send the disconnect packet
   
   c->isconnected = 0;
   
+  mqtt_client_unlock(c);
   return rc;
 }
 
@@ -756,6 +767,7 @@ static int mqtt_subscribe(mqtt_client *c, const char *topicFilter, enum QoS qos)
   if (!c->isconnected)
     goto _exit;
   
+  mqtt_client_lock(c);
   len = MQTTSerialize_subscribe(c->buf, c->buf_size, 0, get_next_packetId(c), 1, &topic, &qos_sub);
   if (len <= 0)
     goto _exit;
@@ -807,6 +819,7 @@ static int mqtt_subscribe(mqtt_client *c, const char *topicFilter, enum QoS qos)
     rc = PAHO_FAILURE;
   
 _exit:
+  mqtt_client_unlock(c);
   return rc;
 }
 
@@ -1213,7 +1226,7 @@ int paho_mqtt_start(mqtt_client *client, rt_uint32_t stack_size, rt_uint8_t  pri
   /* create mqtt mutex */
   rt_memset(lock_name, 0x00, sizeof(lock_name));
   rt_snprintf(lock_name, RT_NAME_MAX, "mqttl%d", counts);
-  client->mqtt_lock = rt_mutex_create(lock_name, RT_IPC_FLAG_FIFO);
+  client->mqtt_lock = rt_mutex_create(lock_name, RT_IPC_FLAG_PRIO);
   if (client->mqtt_lock == RT_NULL) {
     LOG_E("Create mqtt mutex error.");
     return PAHO_FAILURE;
@@ -1297,8 +1310,8 @@ int paho_mqtt_subscribe(mqtt_client *client, enum QoS qos, const char *topic, su
     if (length <= 0)
     {
       LOG_E("Subscribe #%d %s failed!", i, topic);
-      client->isconnected = 0;
       mqtt_client_unlock(client);
+      rc = PAHO_FAILURE;
       goto __subscribe_exit;
     }
     
@@ -1308,7 +1321,7 @@ int paho_mqtt_subscribe(mqtt_client *client, enum QoS qos, const char *topic, su
     if (rc != PAHO_SUCCESS) 
     {
       LOG_E("Subscribe #%d %s failed!", i, topic);
-      client->isconnected = 0;
+      rc = PAHO_FAILURE;
       goto __subscribe_exit;
     }
     if(rt_mq_recv(client->msg_queue, &msg, sizeof(mqtt_message_ack), 
@@ -1324,9 +1337,11 @@ int paho_mqtt_subscribe(mqtt_client *client, enum QoS qos, const char *topic, su
         LOG_I("Subscribe #%d %s OK!", i, topic);
       } else {
         LOG_E("Subscribe #%d %s suback error!", i, topic);
+        rc = PAHO_FAILURE;
       }
     } else {
       LOG_E("Subscribe #%d %s timeout!", i, topic);
+      rc = PAHO_FAILURE;
     }
     goto __subscribe_exit;
   }
@@ -1373,8 +1388,8 @@ int paho_mqtt_unsubscribe(mqtt_client *client, const char *topic)
     if (length <= 0)
     {
       LOG_E("Unubscribe #%d %s failed!", i, topic);
-      client->isconnected = 0;
       mqtt_client_unlock(client);
+      rc = PAHO_FAILURE;
       goto __unsubscribe_exit;
     }
     
@@ -1384,7 +1399,7 @@ int paho_mqtt_unsubscribe(mqtt_client *client, const char *topic)
     if (rc != PAHO_SUCCESS)
     {
       LOG_E("Unubscribe #%d %s failed!", i, topic);
-      client->isconnected = 0;
+      rc = PAHO_FAILURE;
       goto __unsubscribe_exit;
     }
     
@@ -1401,9 +1416,11 @@ int paho_mqtt_unsubscribe(mqtt_client *client, const char *topic)
         
         LOG_I("Unsubscribe #%d %s OK!", i, topic);
       } else {
+        rc = PAHO_FAILURE;
         LOG_E("Unsubscribe #%d %s unsuback error!", i, topic);
       }
     } else {
+      rc = PAHO_FAILURE;
       LOG_E("Unsubscribe #%d %s timeout!", i, topic);
     }
     
